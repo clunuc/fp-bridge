@@ -59,6 +59,7 @@ colors:                        # botones con LED RGB (0-127)
 # press = acción normal, shift = acción con SHIFT mantenido (si falta, usa press)
 buttons:
   # Canal
+  shift:   {press: "key cmd+z", led: "held"}  # deshacer (SHIFT deja de ser modificador; quita esta línea para recuperarlo)
   solo:    {press: "hui strip.solo",   led: "hui strip.solo"}
   mute:    {press: "hui strip.mute",   led: "hui strip.mute"}
   arm:     {press: "hui strip.rec",    led: "hui strip.rec"}

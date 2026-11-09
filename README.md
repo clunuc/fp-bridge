@@ -66,6 +66,7 @@ La primera vez se copia de [fpbridge/default_config.yaml](fpbridge/default_confi
 | Botón | Normal | Con SHIFT |
 |---|---|---|
 | Solo / Mute / Arm | HUI del canal (con LED) | igual |
+| Shift | deshacer (⌘Z). No funciona como modificador; quita la línea `shift:` de la configuración para recuperar la columna "Con SHIFT" | |
 | Bypass | deshacer (⌘Z) | rehacer (⇧⌘Z) |
 | Touch / Write / Read | automatización Touch / Write / Read | Latch / Trim / Off |
 | Prev / Next | pista anterior / siguiente, y la selecciona | deshacer / rehacer |

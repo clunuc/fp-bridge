@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import copy
+
 import pytest
 import yaml
 
@@ -9,12 +11,16 @@ from fpbridge.engine import Engine
 from fpbridge.keys import parse_combo
 
 CFG = yaml.safe_load((Path(__file__).parent.parent / "fpbridge" / "default_config.yaml").read_text())
+# The default maps SHIFT to undo; most tests exercise the SHIFT layer machinery, so
+# they run on a copy where SHIFT is the modifier again.
+CFG_MOD = copy.deepcopy(CFG)
+CFG_MOD["buttons"].pop("shift", None)
 
 
 @pytest.fixture
 def rig():
     out = {"fp": [], "hui": [], "keys": []}
-    e = Engine(CFG, out["fp"].append, out["hui"].append, out["keys"].append)
+    e = Engine(CFG_MOD, out["fp"].append, out["hui"].append, out["keys"].append)
     e.sleep = lambda s: out["hui"].append(["wait", s])
     clock = [1000.0]
     e.now = lambda: clock[0]
@@ -394,3 +400,10 @@ def test_send_led_from_pro_tools_sets_send_index(rig):
     e, out = rig
     _led(e, 0x0B, 5, True)  # Pro Tools: SEND C assigned
     assert e.send_idx == 2
+
+
+def test_default_shift_button_is_undo():
+    keys = []
+    e = Engine(CFG, lambda m: None, lambda m: None, keys.append)
+    tap(e, "shift")
+    assert keys == ["cmd+z"] and not e.shift
