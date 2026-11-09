@@ -14,6 +14,7 @@
 #    wait <ms>                pausa dentro de una lista
 #    send_toggle              fader <-> nivel del envío seleccionado (HUI flip)
 #    send_step +1 / -1        elige el envío A-E
+#    send_off                 devuelve el fader al volumen (sale del flip si hace falta)
 #    none                     nada
 #
 #  LED:  hui <switch> (lo que diga Pro Tools) | mode <nombre> | toggle | held | shift | trim | send | on | off
@@ -72,7 +73,7 @@ buttons:
   # pista anterior / siguiente: mueve el banco una pista y la selecciona | SHIFT = deshacer / rehacer
   prev:    {press: ["hui_tap bank.chan_left",  "wait 40", "hui_tap_spaced strip.select 600"], shift: "key cmd+z"}
   next:    {press: ["hui_tap bank.chan_right", "wait 40", "hui_tap_spaced strip.select 600"], shift: "key cmd+shift+z"}
-  pan:     {press: "mode pan",     led: "mode pan"}
+  pan:     {press: ["send_off", "mode pan"], led: "mode pan"}   # Pan siempre devuelve el fader al volumen
   channel: {press: "send_toggle", led: "send"}   # fader <-> envío (knob elige A-E; LED de color = envío)
   scroll:  {press: "key cmd+s", led: "held"}     # guardar sesión
   marker:  {press: "key cmd+shift+h", led: "held"}   # nueva memory location / marcador

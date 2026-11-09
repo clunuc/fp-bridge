@@ -362,3 +362,35 @@ def test_send_remembered_next_time(rig):
     out["hui"].clear()
     tap(e, "channel")
     assert out["hui"][:2] == hui.switch(0x0B, 5, True)  # starts on send C again
+
+
+def test_pan_button_leaves_send_mode_and_is_harmless_otherwise(rig):
+    e, out = rig
+    t = lambda name: hui.switch(*hui.SWITCHES[name], True) + hui.switch(*hui.SWITCHES[name], False)
+    tap(e, "pan")  # already on volume: must not touch PT (PAN would swap L/R)
+    assert out["hui"] == []
+    tap(e, "channel")
+    out["hui"].clear()
+    tap(e, "pan")
+    assert out["hui"] == t("assign2.shift") + [["wait", 0.05]] + t("assign.pan")
+    assert not e.send_on and e.mode == "pan"
+
+
+def test_flip_state_follows_pro_tools_led(rig):
+    """PT left flipped (e.g. after a restart): LEDs and the next press must agree with PT."""
+    e, out = rig
+    _led(e, 0x0C, 3, True)  # Pro Tools: FLIP is on
+    assert e.send_on and e.mode == "send"
+    assert e.led_state("channel") == fp.LED_ON and e.led_state("pan") == fp.LED_OFF
+    out["hui"].clear()
+    tap(e, "channel")  # so this press turns it OFF
+    t = lambda name: hui.switch(*hui.SWITCHES[name], True) + hui.switch(*hui.SWITCHES[name], False)
+    assert out["hui"] == t("assign2.shift") + [["wait", 0.05]] + t("assign.pan")
+    _led(e, 0x0C, 3, False)
+    assert not e.send_on and e.mode == "pan"
+
+
+def test_send_led_from_pro_tools_sets_send_index(rig):
+    e, out = rig
+    _led(e, 0x0B, 5, True)  # Pro Tools: SEND C assigned
+    assert e.send_idx == 2

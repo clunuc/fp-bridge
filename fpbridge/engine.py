@@ -104,7 +104,7 @@ def parse_action(spec, strip: int) -> list[Action]:
     elif kind == "send_step":
         _need(args, 1, spec)
         int(args[0])
-    elif kind in ("jog", "none", "auto_trim_toggle", "send_toggle"):
+    elif kind in ("jog", "none", "auto_trim_toggle", "send_toggle", "send_off"):
         pass
     else:
         raise ValueError(f"unknown action {spec!r}")
@@ -311,6 +311,8 @@ class Engine:
                 self._auto_trim_toggle()
             elif k == "send_toggle":
                 self._send_toggle()
+            elif k == "send_off":
+                self._set_send(False)
             elif k == "send_step":
                 self._send_step(int(a.args[0]))
             elif k == "mode":
@@ -334,41 +336,57 @@ class Engine:
     SENDS = "abcde"
 
     # ------------------------------------------------- sends on the fader
+    FLIP = hui.SWITCHES["assign2.shift"]
+    SEND_PORTS = {hui.SWITCHES[f"assign.send_{c}"]: i for i, c in enumerate("abcde")}
+
+    def _is_send_on(self) -> bool:
+        """Pro Tools' FLIP LED is the truth when it has told us; our own flag otherwise."""
+        return self.host.leds.get(self.FLIP, self.send_on) if self.FLIP in self.host.leds else self.send_on
+
     def _send_toggle(self) -> None:
-        """Fader <-> send level. HUI: assign the V-pots to a send, then FLIP swaps
-        V-pot and fader. Back: FLIP again and return the V-pots to pan."""
-        flip = hui.SWITCHES["assign2.shift"]
-        if not self.send_on:
+        self._set_send(not self._is_send_on())
+
+    def _set_send(self, on: bool) -> None:
+        """Fader on a send (HUI: assign the V-pots to the send, then FLIP swaps V-pot and
+        fader) or back on volume (un-FLIP, V-pots back to pan). FLIP is a toggle in Pro
+        Tools, so it is only pressed when the current state needs it."""
+        flipped = self._is_send_on()
+        if on:
             self._tap(hui.SWITCHES[f"assign.send_{self.SENDS[self.send_idx]}"])
-            self.sleep(0.05)
-            self._tap(flip)
-            self.send_on = True
+            if not flipped:
+                self.sleep(0.05)
+                self._tap(self.FLIP)
             log.info("fader -> envío %s", self.SENDS[self.send_idx].upper())
-            if self.send_mode in self.modes:
-                self._mode_before_send = self.mode
-                self.set_mode(self.send_mode)
-        else:
-            self._tap(flip)
+        elif flipped:
+            # (only when flipped: tapping PAN while already on pan swaps pan L/R)
+            self._tap(self.FLIP)
             self.sleep(0.05)
             self._tap(hui.SWITCHES["assign.pan"])
-            self.send_on = False
             log.info("fader -> volumen")
-            if self.mode == self.send_mode:
-                self.set_mode(self._mode_before_send or "pan")
+        self._apply_send_state(on)
+
+    def _apply_send_state(self, on: bool) -> None:
+        """Mode, LEDs and colour for 'fader on send' (on) or 'fader on volume'."""
+        self.send_on = on
+        if on and self.send_mode in self.modes and self.mode != self.send_mode:
+            self._mode_before_send = self.mode
+            self.set_mode(self.send_mode)
+        elif not on and self.mode == self.send_mode:
+            self.set_mode(self._mode_before_send or "pan")
         self._send_color()
         self.refresh_leds()
 
     def _send_step(self, delta: int) -> None:
         """Choose send A..E (wraps). With the fader on a send, it follows at once."""
         self.send_idx = (self.send_idx + delta) % len(self.SENDS)
-        if self.send_on:
+        if self._is_send_on():
             self._tap(hui.SWITCHES[f"assign.send_{self.SENDS[self.send_idx]}"])
         log.info("envío %s", self.SENDS[self.send_idx].upper())
         self._send_color()
 
     def _send_color(self) -> None:
         if self.send_led in fp.RGB_BUTTONS:
-            color = (self.send_colors[self.send_idx % len(self.send_colors)] if self.send_on
+            color = (self.send_colors[self.send_idx % len(self.send_colors)] if self._is_send_on()
                      else self.colors.get(self.send_led, (127, 127, 127)))
             self._send_fp(fp.led_color(self.send_led, color))
 
@@ -561,6 +579,13 @@ class Engine:
             log.debug("PT LED %s = %s", hui.describe(zone, port), on)
             if zone <= 7 and port == hui.STRIP_PORTS["select"]:
                 self._seen_select_led = True
+            if (zone, port) == self.FLIP and on != self.send_on:  # (the PAN LED blinks: not logged)
+                log.info("Pro Tools: flip %s", "on" if on else "off")
+            if (zone, port) == self.FLIP:
+                self._apply_send_state(on)  # Pro Tools says whether the fader is flipped
+            elif on and (zone, port) in self.SEND_PORTS:
+                self.send_idx = self.SEND_PORTS[(zone, port)]
+                self._send_color()
             self.refresh_leds()
         elif kind == "fader":
             _, strip, v = ev
@@ -600,7 +625,7 @@ class Engine:
         elif kind == "trim":
             on = self._track_key() in self.trim_tracks
         elif kind == "send":
-            on = self.send_on
+            on = self._is_send_on()
         elif kind == "on":
             on = True
         elif kind == "blink":
