@@ -199,6 +199,11 @@ class Engine:
         # a key on the computer keyboard that, held, selects the second layer (`shift:`)
         self.kbd_modifier = (config.get("keyboard_modifier") or "").lower() or None
         self.kbd_mod_down: Callable[[], bool] = self._read_kbd_modifier  # replaced in tests
+        # mute the armed track while Pro Tools records (no doubled, delayed monitoring)
+        rcfg = config.get("record_mute") or {}
+        self.record_mute = bool(rcfg.get("enabled", False))
+        self.recording = False
+        self._rec_muted: tuple[int, str] | None = None  # (strip, track) we muted
         self._track_name = ""  # last real track name on the fader strip
         self._flashes: dict[str, tuple[float, float, int]] = {}  # button -> (start, ms, phases)
         self._rgb_sent: dict[str, tuple] = {}
@@ -571,6 +576,37 @@ class Engine:
             log.info("pista %s: trim ON", track)
         self._auto_mode("trim")
 
+    def _check_recording(self) -> None:
+        """Recording starts when Play and Rec are lit together and ends when Play goes out
+        (Rec alone blinking = only armed). While recording, the armed track on the fader
+        is muted so its delayed input doesn't double the direct monitoring; it is unmuted
+        again when the transport stops, unless the user muted it themselves."""
+        leds = self.host.leds
+        play = leds.get(hui.SWITCHES["transport.play"], False)
+        rec = leds.get(hui.SWITCHES["transport.record"], False)
+        if not self.recording and play and rec:
+            self.recording = True
+            log.info("grabando")
+            if self.record_mute:
+                armed = leds.get((self.strip, hui.STRIP_PORTS["rec"]), False)
+                muted = leds.get((self.strip, hui.STRIP_PORTS["mute"]), False)
+                if armed and not muted:
+                    self._tap((self.strip, hui.STRIP_PORTS["mute"]))
+                    self._rec_muted = (self.strip, self._track_key())
+                    log.info("pista %s muteada mientras graba", self._track_key())
+        elif self.recording and not play:
+            self.recording = False
+            log.info("grabación parada")
+            if self._rec_muted:
+                strip, track = self._rec_muted
+                self._rec_muted = None
+                if strip == self.strip and track == self._track_key():
+                    if leds.get((strip, hui.STRIP_PORTS["mute"]), False):
+                        self._tap((strip, hui.STRIP_PORTS["mute"]))
+                        log.info("pista %s desmuteada", track)
+                else:
+                    log.warning("la pista %s ya no está en el fader: no la puedo desmutear", track)
+
     def _probe_auto_mode(self) -> None:
         """Ask Pro Tools the automation mode of the track on the fader without changing it:
         AUTO opens 'choose mode' and Pro Tools shows the current mode; a second AUTO closes
@@ -723,6 +759,8 @@ class Engine:
                 if self._auto_log.get((zone, port)) != on:  # automation LEDs: log changes only
                     self._auto_log[(zone, port)] = on
                     log.info("Pro Tools LED %s = %s", hui.describe(zone, port), "on" if on else "off")
+            if zone == 0x0E and port in (hui.SWITCHES["transport.play"][1], hui.SWITCHES["transport.record"][1]):
+                self._check_recording()
             if (zone, port) == self.FLIP and on != self.send_on:  # (the PAN LED blinks: not logged)
                 log.info("Pro Tools: flip %s", "on" if on else "off")
             if (zone, port) == self.FLIP:

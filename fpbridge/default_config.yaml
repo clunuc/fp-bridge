@@ -152,3 +152,9 @@ keyboard_modifier: cmd
 
 # Pulsación larga: tiempo para que cuente como "mantener" (acción `hold:`)
 long_press_ms: 500
+
+# Al grabar, mutea la pista del fader si está armada (evita oír su entrada con retraso
+# encima de la monitorización directa) y la desmutea al parar para escuchar la toma.
+# Si la habías muteado tú, no la toca.
+record_mute:
+  enabled: true

@@ -533,3 +533,49 @@ def test_cmd_on_computer_keyboard_selects_second_layer(rig):
     out["hui"].clear()
     tap(e, "solo")  # no second layer: normal action
     assert out["hui"][:2] == hui.switch(0, 3, True)
+
+
+# ---------------------------------------------------------------- mute while recording
+def _rec_rig(e):
+    e.record_mute = True
+    _name(e, "Vox ")
+    _led(e, 0, 7, True)  # track on the fader armed
+
+
+def test_armed_track_muted_while_recording_and_unmuted_after(rig):
+    e, out = rig
+    _rec_rig(e)
+    mute = hui.switch(0, 2, True) + hui.switch(0, 2, False)
+    out["hui"].clear()
+    _led(e, 0x0E, 5, True)  # Rec armed (blinking)...
+    _led(e, 0x0E, 5, False)
+    _led(e, 0x0E, 5, True)
+    assert out["hui"] == []  # ...not recording yet
+    _led(e, 0x0E, 4, True)  # Play: recording
+    assert out["hui"] == mute
+    _led(e, 0, 2, True)  # Pro Tools: muted
+    out["hui"].clear()
+    _led(e, 0x0E, 5, False)  # Rec blinking during the take must not unmute
+    _led(e, 0x0E, 5, True)
+    assert out["hui"] == []
+    _led(e, 0x0E, 4, False)  # stop
+    assert out["hui"] == mute
+
+
+def test_record_mute_leaves_user_mute_alone(rig):
+    e, out = rig
+    _rec_rig(e)
+    _led(e, 0, 2, True)  # the user had it muted already
+    out["hui"].clear()
+    _led(e, 0x0E, 5, True); _led(e, 0x0E, 4, True)
+    _led(e, 0x0E, 4, False)
+    assert out["hui"] == []
+
+
+def test_record_mute_only_for_armed_track(rig):
+    e, out = rig
+    e.record_mute = True
+    _name(e, "Gtr ")
+    out["hui"].clear()
+    _led(e, 0x0E, 5, True); _led(e, 0x0E, 4, True)
+    assert out["hui"] == []

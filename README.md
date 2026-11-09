@@ -148,6 +148,10 @@ a arrancar.
 
 ## Opciones
 
+- `record_mute.enabled: true`: mientras Pro Tools graba, mutea la pista del
+  fader si está armada, para que su entrada (con el retraso de Pro Tools) no se
+  oiga encima de la monitorización directa. Al parar la desmutea, y así
+  escuchas la toma. No toca las pistas que hayas muteado tú.
 - `follow_selection: true`: el fader salta a la pista que seleccionas en Pro
   Tools, consultándolo por PTSL (Pro Tools Scripting SDK). Viene desactivado.
 - `hui.iac_to_protools` / `hui.iac_from_protools`: usa dos buses IAC en vez del
