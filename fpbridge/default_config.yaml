@@ -67,7 +67,7 @@ buttons:
   solo:    {press: "hui strip.solo",   led: "hui strip.solo"}
   mute:    {press: "hui strip.mute",   led: "hui strip.mute"}
   arm:     {press: "hui strip.rec",    led: "hui strip.rec"}
-  bypass:  {press: "key cmd+z", shift: "key cmd+shift+z"}   # deshacer | SHIFT = rehacer
+  bypass:  {press: "none", led: "off"}   # sin función por ahora (LED apagado)
 
   # Automatización de la pista (mantiene el modo y pulsa AUTO del canal)
   # Automatización de la pista. LED: lo que Pro Tools indique por HUI

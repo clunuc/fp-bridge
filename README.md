@@ -67,7 +67,7 @@ La primera vez se copia de [fpbridge/default_config.yaml](fpbridge/default_confi
 |---|---|---|
 | Solo / Mute / Arm | HUI del canal (con LED) | igual |
 | Shift | deshacer (⌘Z). No funciona como modificador; quita la línea `shift:` de la configuración para recuperar la columna "Con SHIFT" | |
-| Bypass | deshacer (⌘Z) | rehacer (⇧⌘Z) |
+| Bypass | sin función (LED apagado) | |
 | Touch / Write / Read | automatización Touch / Write / Read | Latch / Trim / Off |
 | Prev / Next | pista anterior / siguiente, y la selecciona | deshacer / rehacer |
 | Pan | encoder = pan; pulsar el encoder alterna pan L ↔ R | |
@@ -97,7 +97,6 @@ por los tuyos** en **Editar configuración…**:
 | Master | `⇧⌘0` | es ⌘= en un teclado español; en un teclado de EE. UU. sería `cmd+=` |
 | Section | `⌘K` | pre-roll |
 | Scroll | `⌘S` | guardar |
-| Bypass | `⌘Z` / `⇧⌘Z` | deshacer / rehacer |
 | Pedal | `espacio` | play/stop |
 
 Los botones HUI (transporte, solo, mute, arm, automatización, fader, pan) no
