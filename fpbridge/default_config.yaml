@@ -9,6 +9,7 @@
 #    key <atajo>              atajo de teclado: "key c", "key cmd+e", "key kpenter"
 #    mode <nombre>            cambia el modo del encoder
 #    encoder +1 / encoder -1  un paso del encoder en el modo actual
+#    auto_mode <modo>         automatización de la pista: read, touch, latch, write, off, trim
 #    auto_trim_toggle         pone la pista en automatización Trim / la devuelve a su modo anterior
 #    hui_tap_spaced <sw> <ms> como hui_tap, pero nunca dos pulsaciones a menos de <ms>
 #    wait <ms>                pausa dentro de una lista
@@ -17,7 +18,10 @@
 #    send_off                 devuelve el fader al volumen (sale del flip si hace falta)
 #    none                     nada
 #
-#  LED:  hui <switch> (lo que diga Pro Tools) | mode <nombre> | toggle | held | shift | trim | send | on | off
+#  LED:  hui <switch> (lo que diga Pro Tools) | mode <nombre> | toggle | held | shift | trim | send
+#        | auto <modo>[,<modo>] (modo de automatización de la pista) | on | off
+#  Botones RGB: color_on / color_off = color encendido / apagado (sin color_off: LED apagado)
+#  flash: {color: [r,g,b], times: 3, ms: 110} = parpadeo al pulsar
 #
 #  Switches HUI: strip.solo, strip.mute, strip.rec, strip.select, strip.auto,
 #  strip.vsel, strip.insert, transport.play, transport2.loop, ...
@@ -53,7 +57,7 @@ colors:                        # botones con LED RGB (0-127)
   scroll:  [127, 127, 0]
   read:    [0, 127, 0]
   write:   [127, 0, 0]
-  touch:   [127, 80, 0]
+  touch:   [127, 0, 0]       # rojo de grabación, como Write
 
 # --- Botones ----------------------------------------------------------------
 # press = acción normal, shift = acción con SHIFT mantenido (si falta, usa press)
@@ -66,24 +70,25 @@ buttons:
   bypass:  {press: "key cmd+z", shift: "key cmd+shift+z"}   # deshacer | SHIFT = rehacer
 
   # Automatización de la pista (mantiene el modo y pulsa AUTO del canal)
-  touch:   {press: "hui_combo auto_mode.touch strip.auto", shift: "hui_combo auto_mode.latch strip.auto", led: "hui auto_mode.touch"}
-  write:   {press: "hui_combo auto_mode.write strip.auto", shift: "hui_combo auto_mode.trim strip.auto",  led: "hui auto_mode.write"}
-  read:    {press: "hui_combo auto_mode.read strip.auto",  shift: "hui_combo auto_mode.off strip.auto",   led: "hui auto_mode.read"}
+  # Automatización de la pista. LED: lo que Pro Tools indique por HUI
+  touch:   {press: "auto_mode touch", shift: "auto_mode latch", led: "hui auto_mode.touch"}
+  write:   {press: "auto_mode write", shift: "auto_mode trim",  led: "hui auto_mode.write"}
+  read:    {press: "auto_mode read",  shift: "auto_mode off",   led: "hui auto_mode.read"}
 
   # Navegación
   # pista anterior / siguiente: mueve el banco una pista y la selecciona | SHIFT = deshacer / rehacer
   prev:    {press: ["hui_tap bank.chan_left",  "wait 40", "hui_tap_spaced strip.select 600"], shift: "key cmd+z"}
   next:    {press: ["hui_tap bank.chan_right", "wait 40", "hui_tap_spaced strip.select 600"], shift: "key cmd+shift+z"}
-  pan:     {press: ["send_off", "mode pan"], led: "mode pan"}   # Pan siempre devuelve el fader al volumen
-  channel: {press: "send_toggle", led: "send"}   # fader <-> envío (knob elige A-E; LED de color = envío)
-  scroll:  {press: "key cmd+s", led: "held"}     # guardar sesión
+  pan:     {press: ["send_off", "mode pan"], led: "mode pan", color_on: [0, 40, 127], color_off: [18, 18, 18]}   # Pan siempre devuelve el fader al volumen
+  channel: {press: "send_toggle", led: "send", color_off: [18, 18, 18]}   # fader <-> envío (knob elige A-E; LED de color = envío)
+  scroll:  {press: "key cmd+s", color_off: [18, 18, 18], flash: {color: [0, 127, 0], times: 3, ms: 110}}   # guardar: triple destello verde
   marker:  {press: "key cmd+shift+h", led: "held"}   # nueva memory location / marcador
 
   # Botones que PreSonus deja sin función en HUI -> atajos de teclado
   click:   {press: "key c", led: "toggle"}       # metrónomo (tu atajo C)
   master:  {press: "key cmd+shift+0"}            # alterna Mix / Edit (⌘= en teclado español)
   section: {press: "key cmd+k", led: "toggle"}   # pre-roll on/off
-  link:    {press: "auto_trim_toggle", led: "trim"}         # alterna automatización normal <-> Trim
+  link:    {press: "auto_trim_toggle", led: "trim", color_on: [127, 60, 0], color_off: [18, 18, 18]}         # alterna automatización normal <-> Trim
 
   # Transporte
   rewind:  {press: "hui transport.rewind", shift: "hui_tap transport2.rtz", led: "hui transport.rewind"}
@@ -130,3 +135,8 @@ sends:
   led_button: channel                   # botón cuyo LED de color indica el envío
   encoder_mode: send                    # modo del knob mientras estás en envíos
   colors: [[127, 0, 0], [127, 50, 0], [127, 110, 0], [0, 127, 0], [0, 40, 127]]   # A B C D E
+
+# Automatización: al cambiar de pista, preguntar a Pro Tools su modo (pulsa AUTO dos veces
+# por dentro). Desactivado: los LEDs de Read/Touch/Write siguen a Pro Tools por HUI.
+automation:
+  probe_on_track_change: false

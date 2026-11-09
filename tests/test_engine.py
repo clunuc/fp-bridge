@@ -160,7 +160,7 @@ def test_encoder_modes(rig):
     assert out["hui"] == [[0xB0, 0x40, 0x41]]
     out["hui"].clear()
     e.set_mode("channel")  # track navigation mode (no button by default)
-    assert [0x90, fp.BUTTONS["pan"], fp.LED_OFF] in out["fp"]
+    assert e._rgb_sent["pan"] == (18, 18, 18)  # pan dimmed (idle white)
     e.on_faderport([0xB0, 0x3C, 0x42])  # 2 steps ccw
     bank = hui.switch(0x0A, 0, True) + hui.switch(0x0A, 0, False) + [["wait", 0.04]]
     select = hui.switch(0, 1, True) + hui.switch(0, 1, False)
@@ -173,11 +173,12 @@ def test_encoder_modes(rig):
     assert out["keys"] == ["cmd+s"]  # scroll = save session
 
 
-def test_automation_combo(rig):
+def test_automation_button_holds_mode_and_taps_auto_twice(rig):
     e, out = rig
     tap(e, "touch")
-    assert out["hui"] == (hui.switch(0x18, 5, True) + hui.switch(0, 4, True)
-                          + hui.switch(0, 4, False) + hui.switch(0x18, 5, False))
+    combo = (hui.switch(0x18, 5, True) + hui.switch(0, 4, True) + hui.switch(0, 4, False)
+             + hui.switch(0x18, 5, False))
+    assert out["hui"] == combo + combo
 
 
 def test_hui_display_parsing():
@@ -242,14 +243,14 @@ def test_link_toggles_trim_with_one_press_each_way(rig):
     out["hui"].clear(); out["fp"].clear()
     tap(e, "link")
     trim, touch, auto = (0x18, 0), (0x18, 5), (0, 4)
-    combo = lambda m: (hui.switch(*m, True) + hui.switch(*auto, True)
-                       + hui.switch(*auto, False) + hui.switch(*m, False))
-    assert out["hui"] == combo(trim)
-    assert [0x90, fp.BUTTONS["link"], fp.LED_ON] in out["fp"]
+    def combo(m):
+        return hui.switch(*m, True) + hui.switch(*auto, True) + hui.switch(*auto, False) + hui.switch(*m, False)
+    assert combo(trim) == out["hui"]
+    assert e._rgb_sent["link"] == (127, 60, 0)  # ochre = trim
     out["hui"].clear()
     tap(e, "link")
-    assert out["hui"] == combo(trim)  # Trim is an on/off switch in Pro Tools
-    assert [0x90, fp.BUTTONS["link"], fp.LED_OFF] in out["fp"]
+    assert combo(trim) == out["hui"]  # Trim is an on/off switch in Pro Tools
+    assert e._rgb_sent["link"] == (18, 18, 18)  # idle white
 
 
 def test_trim_led_follows_track(rig):
@@ -339,8 +340,8 @@ def test_channel_toggles_fader_to_send_and_back(rig):
     tap(e, "channel")
     assert out["hui"] == t("assign.send_a") + [["wait", 0.05]] + t("assign2.shift")
     assert e.send_on and e.mode == "send"
-    assert [0x90, fp.BUTTONS["channel"], fp.LED_ON] in out["fp"]
-    assert fp.led_color("channel", (127, 0, 0))[0] in out["fp"]  # red = send A
+    assert e.led_state("channel") == fp.LED_ON
+    assert e._rgb_sent["channel"] == (127, 0, 0)  # red = send A
     out["hui"].clear()
     tap(e, "channel")
     assert out["hui"] == t("assign2.shift") + [["wait", 0.05]] + t("assign.pan")
@@ -407,3 +408,93 @@ def test_default_shift_button_is_undo():
     e = Engine(CFG, lambda m: None, lambda m: None, keys.append)
     tap(e, "shift")
     assert keys == ["cmd+z"] and not e.shift
+
+
+def _smart_auto_leds(e):
+    """Opt-in feature (off by default): Read/Touch/Write LEDs from the tracked mode."""
+    e.buttons["read"].led = "auto read"
+    e.buttons["touch"].led = "auto touch,latch"
+    e.buttons["write"].led = "auto write"
+    e.probe_auto = True
+
+
+# ---------------------------------------------------------------- automation LEDs
+def test_automation_leds_follow_track_mode(rig):
+    e, out = rig
+    _smart_auto_leds(e)
+    _name(e, "Vox ")
+    tap(e, "read")  # set from the FaderPort
+    assert e.led_state("read") == fp.LED_ON and e.led_state("touch") == fp.LED_OFF
+    _name(e, "Gtr ")
+    e.clock[0] += 5  # later, the mode of Gtr is changed with the mouse
+    _name(e, "Tch ")  # Pro Tools flashes it
+    assert e._track_key() == "Gtr"
+    assert e.led_state("touch") == fp.LED_ON and e.led_state("read") == fp.LED_OFF
+    _name(e, "Vox ")
+    assert e.led_state("read") == fp.LED_ON
+
+
+def test_mode_text_after_own_press_is_the_old_mode(rig):
+    """Pro Tools shows the mode from BEFORE our change: the LEDs must keep the new one."""
+    e, out = rig
+    _smart_auto_leds(e)
+    _name(e, "Vox ")
+    tap(e, "touch")
+    _name(e, "Read")  # what the track had before
+    _name(e, "Read")
+    assert e.led_state("touch") == fp.LED_ON and e.led_state("read") == fp.LED_OFF
+
+
+def test_link_trim_follows_pro_tools_after_toggle(rig):
+    e, out = rig
+    _smart_auto_leds(e)
+    _name(e, "Inst")
+    tap(e, "link")  # we guess trim ON...
+    _name(e, "TRd ")  # ...but PT says trim WAS on before the press: so now it is OFF
+    assert e.led_state("link") == fp.LED_OFF
+    e.clock[0] += 5
+    tap(e, "link")
+    _name(e, "Read")  # was off -> now on
+    assert e.led_state("link") == fp.LED_ON and e.led_state("read") == fp.LED_ON
+
+
+def test_mode_text_not_after_our_press_is_truth(rig):
+    e, out = rig
+    _smart_auto_leds(e)
+    _name(e, "Inst")
+    e.clock[0] += 5
+    _name(e, "TWrt")  # changed with the mouse: trim + write
+    assert e.led_state("link") == fp.LED_ON and e.led_state("write") == fp.LED_ON
+
+
+def test_scroll_triple_green_flash(rig):
+    e, out = rig
+    green = fp.led_color("scroll", (0, 127, 0))[0]
+    dim = fp.led_color("scroll", (18, 18, 18))[0]
+    out["fp"].clear()
+    tap(e, "scroll")
+    for i in range(8):
+        e.tick(now=e.clock[0] + i * 0.11 + 0.01)
+    seen = [m for m in out["fp"] if m in (green, dim)]
+    assert seen.count(green) == 3 and seen[-1] == dim
+
+
+def test_track_change_asks_pro_tools_for_the_mode(rig):
+    e, out = rig
+    _smart_auto_leds(e)
+    e.on_hui([0x90, 0, 0])  # Pro Tools online
+    _name(e, "Vox ")
+    out["hui"].clear()
+    e.tick(now=e.clock[0] + 0.5)
+    auto = hui.switch(0, 4, True) + hui.switch(0, 4, False)
+    assert out["hui"] == auto + auto  # AUTO twice: show the mode, close again
+    _name(e, "Wrt ")  # Pro Tools' answer
+    assert e.led_state("write") == fp.LED_ON and e._track_key() == "Vox"
+
+
+def test_non_name_texts_are_not_track_changes(rig):
+    e, out = rig
+    _name(e, "Vox ")
+    _name(e, "Auto")
+    _name(e, " -  ")
+    assert e._track_key() == "Vox"

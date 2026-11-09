@@ -101,6 +101,10 @@ def parse_action(spec, strip: int) -> list[Action]:
         _need(args, 1, spec)
         if not 0 <= int(args[0]) <= 1000:
             raise ValueError(f"wait must be 0-1000 ms in {spec!r}")
+    elif kind == "auto_mode":
+        _need(args, 1, spec)
+        if args[0] not in ("read", "touch", "latch", "write", "off", "trim"):
+            raise ValueError(f"unknown automation mode in {spec!r}")
     elif kind == "send_step":
         _need(args, 1, spec)
         int(args[0])
@@ -126,6 +130,29 @@ class ButtonCfg:
     press: list[Action]
     shift: list[Action] | None
     led: str | None
+    color_on: tuple | None = None  # RGB buttons: colour when the LED is "on"
+    color_off: tuple | None = None  # ... and when "off" (None = LED dark)
+    flash: dict | None = None  # {color, times, ms}: blink on press
+
+
+def _rgb(v):
+    return tuple(int(c) for c in v) if v is not None else None
+
+
+# Automation mode texts Pro Tools flashes on the HUI scribble strip after a change
+# ("Read", "Tch", "Wrt", ...; a leading T means Trim is on: "TRd" = Trim + Read).
+_MODE_TEXT = {"read": "read", "rd": "read", "tch": "touch", "touch": "touch", "tc": "touch",
+              "wrt": "write", "write": "write", "wr": "write", "ltch": "latch", "latch": "latch",
+              "lch": "latch", "ltc": "latch", "lt": "latch", "off": "off"}
+
+
+def parse_mode_text(text: str) -> tuple[str, bool] | None:
+    t = text.strip().lower()
+    if t in _MODE_TEXT:
+        return _MODE_TEXT[t], False
+    if len(t) >= 2 and t[0] == "t" and t[1:] in _MODE_TEXT:
+        return _MODE_TEXT[t[1:]], True
+    return None
 
 
 class Engine:
@@ -158,6 +185,16 @@ class Engine:
         self._verified_once = False
         self._search: list[int] = []
         self._seen_select_led = False
+        self._auto_log: dict = {}
+        self.auto_modes: dict[str, str] = {}  # track name -> automation mode
+        # our last automation press: (time, "mode"|"trim"); Pro Tools then shows the
+        # mode the track had BEFORE the change, which must not be taken as the new one
+        self._auto_press: tuple[float, str] | None = None
+        self.probe_auto = bool((config.get("automation") or {}).get("probe_on_track_change", False))
+        self._probe_at: float | None = None
+        self._track_name = ""  # last real track name on the fader strip
+        self._flashes: dict[str, tuple[float, float, int]] = {}  # button -> (start, ms, phases)
+        self._rgb_sent: dict[str, tuple] = {}
 
         hcfg = config.get("hui", {})
         self.strip = self.base_strip = int(hcfg.get("strip", 0))
@@ -174,6 +211,11 @@ class Engine:
                 press=parse_action(b.get("press"), self.strip),
                 shift=parse_action(b["shift"], self.strip) if "shift" in b else None,
                 led=b.get("led"),
+                color_on=_rgb(b.get("color_on")),
+                color_off=_rgb(b.get("color_off")),
+                flash=({"color": _rgb(b["flash"].get("color", [127, 127, 127])),
+                        "times": int(b["flash"].get("times", 1)),
+                        "ms": int(b["flash"].get("ms", 120))} if b.get("flash") else None),
             )
 
         ecfg = config.get("encoder") or {}
@@ -209,13 +251,8 @@ class Engine:
 
     # ------------------------------------------------------------------ init
     def start(self) -> None:
-        for name in fp.BUTTONS:
-            if name in fp.NO_LED:
-                continue
-            if name in fp.RGB_BUTTONS:
-                self._send_fp(fp.led_color(name, self.colors.get(name, (127, 127, 127))))
-        if self.send_on:
-            self._send_color()
+        self._leds.clear()
+        self._rgb_sent.clear()
         self.refresh_leds()
         self._send_fp(fp.fader(self.last_host_fader or 0))
 
@@ -278,6 +315,8 @@ class Engine:
 
         if pressed:
             acts = cfg.shift if (self.shift and cfg.shift is not None) else cfg.press
+            if cfg.flash:
+                self._flashes[name] = (self.now(), cfg.flash["ms"] / 1000, cfg.flash["times"] * 2)
             if cfg.led == "toggle":
                 self.toggles[name] = not self.toggles.get(name, False)
             self.active[name] = acts
@@ -296,9 +335,18 @@ class Engine:
             elif k == "hui_tap":
                 self._tap(a.target)
                 self._note_bank_move(a.target)
+                if a.target[0] == 0x18:  # automation mode chosen from the FaderPort
+                    mode = hui.describe(*a.target).split(".")[1]
+                    if mode != "trim":
+                        self.auto_modes[self._track_key()] = mode
+                        self.refresh_leds()
             elif k == "hui_tap_spaced":
                 self._tap_spaced(a.target, int(a.args[1]) / 1000)
             elif k == "hui_combo":
+                if a.target[0] == 0x18 and a.target2[1] == hui.STRIP_PORTS["auto"]:
+                    mode = hui.describe(*a.target).split(".")[1]
+                    if mode != "trim":
+                        self.auto_modes[self._track_key()] = mode
                 self._hui_switch(a.target, True)
                 self._hui_switch(a.target2, True)
                 self._hui_switch(a.target2, False)
@@ -309,6 +357,8 @@ class Engine:
                 self.sleep(int(a.args[0]) / 1000)
             elif k == "auto_trim_toggle":
                 self._auto_trim_toggle()
+            elif k == "auto_mode":
+                self._auto_mode(a.args[0])
             elif k == "send_toggle":
                 self._send_toggle()
             elif k == "send_off":
@@ -385,10 +435,7 @@ class Engine:
         self._send_color()
 
     def _send_color(self) -> None:
-        if self.send_led in fp.RGB_BUTTONS:
-            color = (self.send_colors[self.send_idx % len(self.send_colors)] if self._is_send_on()
-                     else self.colors.get(self.send_led, (127, 127, 127)))
-            self._send_fp(fp.led_color(self.send_led, color))
+        self.refresh_leds()  # the send colour is drawn by refresh_leds()
 
     # ----------------------------------------------- follow PT selection
     _BANK_MOVES = {
@@ -481,14 +528,12 @@ class Engine:
         self._hui_switch(target, False)
 
     def _track_key(self) -> str:
-        return self.host.scribble.get(self.strip, "").strip() or "?"
+        return self._track_name.strip() or "?"
 
     def _auto_trim_toggle(self) -> None:
         """Toggle Trim on the current track. In Pro Tools Trim is an on/off switch on top of
         the automation mode, so the same HUI combo turns it on and off; the LED is tracked
         per track name."""
-        auto = (self.strip, hui.STRIP_PORTS["auto"])
-        trim = hui.SWITCHES["auto_mode.trim"]
         track = self._track_key()
         if track in self.trim_tracks:
             del self.trim_tracks[track]
@@ -496,10 +541,61 @@ class Engine:
         else:
             self.trim_tracks[track] = "on"
             log.info("pista %s: trim ON", track)
-        self._hui_switch(trim, True)
-        self._hui_switch(auto, True)
-        self._hui_switch(auto, False)
-        self._hui_switch(trim, False)
+        self._auto_mode("trim")
+
+    def _probe_auto_mode(self) -> None:
+        """Ask Pro Tools the automation mode of the track on the fader without changing it:
+        AUTO opens 'choose mode' and Pro Tools shows the current mode; a second AUTO closes
+        it (if it was already open, the first closes it and the second shows the mode)."""
+        if not self.hui_online:
+            return
+        self._auto_press = (self.now(), "probe")
+        auto = (self.strip, hui.STRIP_PORTS["auto"])
+        self._tap(auto)
+        self._tap(auto)
+
+    def _on_mode_text(self, m: str, trim: bool) -> None:
+        """Pro Tools showed an automation mode on the strip. Right after one of our own
+        automation presses it is the mode from BEFORE the change: then the mode we set
+        stands, and for a Trim toggle the new Trim state is the opposite of the old one."""
+        track = self._track_key()
+        press = self._auto_press
+        recent = press is not None and self.now() - press[0] < 1.0
+        if recent and press[1] == "probe":
+            recent = False  # an answer to our question: the current mode, take it as is
+        if recent and press[1] == "trim":
+            self.auto_modes[track] = m  # (Trim doesn't change the mode)
+            trim = not trim
+            self._auto_press = (press[0], "trim-done")  # only the first text counts
+        elif recent and press[1] == "trim-done":
+            return
+        elif not recent:
+            self.auto_modes[track] = m
+        # after a mode press the Trim part is still right (a mode change keeps Trim)
+        if trim:
+            self.trim_tracks[track] = "on"
+        else:
+            self.trim_tracks.pop(track, None)
+        log.info("pista %s: automatización %s%s", track, "trim + " if trim else "",
+                 self.auto_modes.get(track, m))
+
+    def _auto_mode(self, mode: str) -> None:
+        """Set the track's automation mode the way that works in Pro Tools: hold the mode
+        switch and tap the strip's AUTO switch (a HUI switch, not a FaderPort button).
+        For 'trim' this toggles Trim on and off."""
+        if mode != "trim":
+            self.auto_modes[self._track_key()] = mode
+            self.refresh_leds()
+        self._auto_press = (self.now(), "trim" if mode == "trim" else "mode")
+        target = hui.SWITCHES[f"auto_mode.{mode}"]
+        auto = (self.strip, hui.STRIP_PORTS["auto"])
+        # If Pro Tools isn't already waiting for a mode, the first combo only makes it
+        # wait; the second one applies the mode. Choosing the same mode twice is harmless,
+        # but Trim is a toggle, so it gets a single combo.
+        for _ in range(1 if mode == "trim" else 2):
+            self._hui_switch(target, True)
+            self._tap(auto)
+            self._hui_switch(target, False)
 
     def set_mode(self, mode: str) -> None:
         if mode not in self.modes:
@@ -555,6 +651,14 @@ class Engine:
                 self._last_tap[target] = now
                 self._hui_switch(target, True)
                 self._hui_switch(target, False)
+        if self._probe_at is not None and now >= self._probe_at:
+            self._probe_at = None
+            self._probe_auto_mode()
+        if self._flashes:
+            for name, (start, step, phases) in list(self._flashes.items()):
+                if now - start >= step * phases:
+                    del self._flashes[name]
+            self.refresh_leds(now)
         if self.auto_touch_until is not None and now >= self.auto_touch_until:
             self.auto_touch_until = None
             self._hui_switch((self.strip, hui.STRIP_PORTS["fader"]), False)
@@ -579,6 +683,10 @@ class Engine:
             log.debug("PT LED %s = %s", hui.describe(zone, port), on)
             if zone <= 7 and port == hui.STRIP_PORTS["select"]:
                 self._seen_select_led = True
+            if zone == 0x18 or (zone == self.strip and port == hui.STRIP_PORTS["auto"]):
+                if self._auto_log.get((zone, port)) != on:  # automation LEDs: log changes only
+                    self._auto_log[(zone, port)] = on
+                    log.info("Pro Tools LED %s = %s", hui.describe(zone, port), "on" if on else "off")
             if (zone, port) == self.FLIP and on != self.send_on:  # (the PAN LED blinks: not logged)
                 log.info("Pro Tools: flip %s", "on" if on else "off")
             if (zone, port) == self.FLIP:
@@ -598,7 +706,17 @@ class Engine:
                 l1, l2 = self.host.lcd_text()
                 log.debug("PT LCD |%s|%s|", l1, l2)
             elif ev[1] == "scribble" and ev[2] == self.strip:
-                log.info("pista: %s", self.host.scribble.get(self.strip))
+                text = self.host.scribble.get(self.strip, "")
+                mode = parse_mode_text(text)
+                if mode:  # Pro Tools flashing the automation mode of this track
+                    self._on_mode_text(*mode)
+                elif (text.strip() and any(c.isalpha() for c in text)
+                      and text.strip().lower() != "auto" and not self._is_send_on()):
+                    # (not a track name: "Auto", send values like " -  " while flipped)
+                    if text != self._track_name and self.probe_auto:
+                        self._probe_at = self.now() + 0.35  # (debounced: fast Prev/Next)
+                    self._track_name = text
+                    log.info("pista: %s", text)
                 self.refresh_leds()
 
     # ---------------------------------------------------------------- LEDs
@@ -626,20 +744,51 @@ class Engine:
             on = self._track_key() in self.trim_tracks
         elif kind == "send":
             on = self._is_send_on()
+        elif kind == "auto":
+            on = self.auto_modes.get(self._track_key()) in words[1].split(",")
         elif kind == "on":
             on = True
         elif kind == "blink":
             return fp.LED_BLINK
         return fp.LED_ON if on else fp.LED_OFF
 
-    def refresh_leds(self) -> None:
+    def _flash_phase(self, name: str, now: float) -> bool:
+        f = self._flashes.get(name)
+        if not f:
+            return False
+        start, step, phases = f
+        i = int((now - start) / step) if step > 0 else phases
+        return i < phases and i % 2 == 0
+
+    def _rgb_for(self, name: str, state: int, flashing: bool):
+        cfg = self.buttons.get(name)
+        if flashing and cfg and cfg.flash:
+            return cfg.flash["color"]
+        if name == self.send_led and self._is_send_on():
+            return self.send_colors[self.send_idx % len(self.send_colors)]
+        base = self.colors.get(name, (127, 127, 127))
+        if state != fp.LED_OFF:
+            return (cfg.color_on if cfg and cfg.color_on else None) or base
+        return cfg.color_off if cfg else None
+
+    def refresh_leds(self, now: float | None = None) -> None:
+        now = self.now() if now is None else now
         for name in fp.BUTTONS:
             if name in fp.NO_LED:
                 continue
             state = self.led_state(name)
-            if self._leds.get(name) != state:
-                self._leds[name] = state
-                self._send_fp(fp.led(name, state))
+            flashing = self._flash_phase(name, now)
+            if name in fp.RGB_BUTTONS:
+                color = self._rgb_for(name, state, flashing)
+                note = (fp.LED_BLINK if state == fp.LED_BLINK else fp.LED_ON) if color else fp.LED_OFF
+                if color and self._rgb_sent.get(name) != color:
+                    self._rgb_sent[name] = color
+                    self._send_fp(fp.led_color(name, color))
+            else:
+                note = (fp.LED_OFF if state == fp.LED_ON else fp.LED_ON) if flashing else state
+            if self._leds.get(name) != note:
+                self._leds[name] = note
+                self._send_fp(fp.led(name, note))
 
     # ------------------------------------------------------------- output
     def _hui_switch(self, target, pressed: bool) -> None:

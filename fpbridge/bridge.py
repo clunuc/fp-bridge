@@ -168,6 +168,7 @@ class Bridge:
         new._seen_select_led = old._seen_select_led
         new.send_on, new.send_idx = old.send_on, old.send_idx
         new._mode_before_send = old._mode_before_send
+        new.auto_modes, new._track_name = old.auto_modes, old._track_name
         if old.mode in new.modes:
             new.mode = old.mode
         if fp_dev.connected:
