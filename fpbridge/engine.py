@@ -101,7 +101,10 @@ def parse_action(spec, strip: int) -> list[Action]:
         _need(args, 1, spec)
         if not 0 <= int(args[0]) <= 1000:
             raise ValueError(f"wait must be 0-1000 ms in {spec!r}")
-    elif kind in ("jog", "none", "auto_trim_toggle"):
+    elif kind == "send_step":
+        _need(args, 1, spec)
+        int(args[0])
+    elif kind in ("jog", "none", "auto_trim_toggle", "send_toggle"):
         pass
     else:
         raise ValueError(f"unknown action {spec!r}")
@@ -138,6 +141,15 @@ class Engine:
         self._last_tap: dict[tuple[int, int], float] = {}
         self._pending_taps: dict[tuple[int, int], float] = {}
         self.trim_tracks: dict[str, str] = {}  # track names with Trim on
+        # sends on the fader (HUI flip): which send, and whether the fader is on it
+        scfg = config.get("sends") or {}
+        self.send_on = False
+        self.send_idx = 0
+        self.send_led = scfg.get("led_button", "channel")
+        self.send_mode = scfg.get("encoder_mode", "send")
+        self.send_colors = [tuple(c) for c in scfg.get("colors", [
+            [127, 0, 0], [127, 50, 0], [127, 110, 0], [0, 127, 0], [0, 40, 127]])]
+        self._mode_before_send: str | None = None
         # follow Pro Tools selection (PTSL): index of the track on strip 0, None = unknown
         self.follow = bool(config.get("follow_selection", True))
         self.bank_pos: int | None = None
@@ -202,6 +214,8 @@ class Engine:
                 continue
             if name in fp.RGB_BUTTONS:
                 self._send_fp(fp.led_color(name, self.colors.get(name, (127, 127, 127))))
+        if self.send_on:
+            self._send_color()
         self.refresh_leds()
         self._send_fp(fp.fader(self.last_host_fader or 0))
 
@@ -295,6 +309,10 @@ class Engine:
                 self.sleep(int(a.args[0]) / 1000)
             elif k == "auto_trim_toggle":
                 self._auto_trim_toggle()
+            elif k == "send_toggle":
+                self._send_toggle()
+            elif k == "send_step":
+                self._send_step(int(a.args[0]))
             elif k == "mode":
                 self.set_mode(a.args[0])
             elif k == "encoder":
@@ -313,6 +331,46 @@ class Engine:
             self._pending_taps[target] = last + gap
 
     AUTO_MODES = ("read", "touch", "latch", "write", "off")
+    SENDS = "abcde"
+
+    # ------------------------------------------------- sends on the fader
+    def _send_toggle(self) -> None:
+        """Fader <-> send level. HUI: assign the V-pots to a send, then FLIP swaps
+        V-pot and fader. Back: FLIP again and return the V-pots to pan."""
+        flip = hui.SWITCHES["assign2.shift"]
+        if not self.send_on:
+            self._tap(hui.SWITCHES[f"assign.send_{self.SENDS[self.send_idx]}"])
+            self.sleep(0.05)
+            self._tap(flip)
+            self.send_on = True
+            log.info("fader -> envío %s", self.SENDS[self.send_idx].upper())
+            if self.send_mode in self.modes:
+                self._mode_before_send = self.mode
+                self.set_mode(self.send_mode)
+        else:
+            self._tap(flip)
+            self.sleep(0.05)
+            self._tap(hui.SWITCHES["assign.pan"])
+            self.send_on = False
+            log.info("fader -> volumen")
+            if self.mode == self.send_mode:
+                self.set_mode(self._mode_before_send or "pan")
+        self._send_color()
+        self.refresh_leds()
+
+    def _send_step(self, delta: int) -> None:
+        """Choose send A..E (wraps). With the fader on a send, it follows at once."""
+        self.send_idx = (self.send_idx + delta) % len(self.SENDS)
+        if self.send_on:
+            self._tap(hui.SWITCHES[f"assign.send_{self.SENDS[self.send_idx]}"])
+        log.info("envío %s", self.SENDS[self.send_idx].upper())
+        self._send_color()
+
+    def _send_color(self) -> None:
+        if self.send_led in fp.RGB_BUTTONS:
+            color = (self.send_colors[self.send_idx % len(self.send_colors)] if self.send_on
+                     else self.colors.get(self.send_led, (127, 127, 127)))
+            self._send_fp(fp.led_color(self.send_led, color))
 
     # ----------------------------------------------- follow PT selection
     _BANK_MOVES = {
@@ -541,6 +599,8 @@ class Engine:
             on = self.shift
         elif kind == "trim":
             on = self._track_key() in self.trim_tracks
+        elif kind == "send":
+            on = self.send_on
         elif kind == "on":
             on = True
         elif kind == "blink":

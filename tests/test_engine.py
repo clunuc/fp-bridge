@@ -153,8 +153,7 @@ def test_encoder_modes(rig):
     e.on_faderport([0xB0, 0x3C, 0x01])
     assert out["hui"] == [[0xB0, 0x40, 0x41]]
     out["hui"].clear()
-    tap(e, "channel")
-    assert [0x90, fp.BUTTONS["channel"], fp.LED_ON] in out["fp"]
+    e.set_mode("channel")  # track navigation mode (no button by default)
     assert [0x90, fp.BUTTONS["pan"], fp.LED_OFF] in out["fp"]
     e.on_faderport([0xB0, 0x3C, 0x42])  # 2 steps ccw
     bank = hui.switch(0x0A, 0, True) + hui.switch(0x0A, 0, False) + [["wait", 0.04]]
@@ -325,3 +324,41 @@ def test_search_neighbour_banks_when_track_not_visible(rig):
     _led(e, 2, 1, True)  # found it on strip 3
     e.tick(now=e.clock[0] + 2)
     assert out["hui"] == taps(0x0A, 2, 2)  # 2 chans right puts it on the fader
+
+
+# ---------------------------------------------------------------- sends on the fader
+def test_channel_toggles_fader_to_send_and_back(rig):
+    e, out = rig
+    t = lambda name: hui.switch(*hui.SWITCHES[name], True) + hui.switch(*hui.SWITCHES[name], False)
+    tap(e, "channel")
+    assert out["hui"] == t("assign.send_a") + [["wait", 0.05]] + t("assign2.shift")
+    assert e.send_on and e.mode == "send"
+    assert [0x90, fp.BUTTONS["channel"], fp.LED_ON] in out["fp"]
+    assert fp.led_color("channel", (127, 0, 0))[0] in out["fp"]  # red = send A
+    out["hui"].clear()
+    tap(e, "channel")
+    assert out["hui"] == t("assign2.shift") + [["wait", 0.05]] + t("assign.pan")
+    assert not e.send_on and e.mode == "pan"
+
+
+def test_knob_chooses_send_while_on_send(rig):
+    e, out = rig
+    tap(e, "channel")
+    out["hui"].clear(); out["fp"].clear()
+    e.on_faderport([0xB0, 0x3C, 0x01])  # knob one step clockwise -> send B
+    assert out["hui"] == hui.switch(0x0B, 6, True) + hui.switch(0x0B, 6, False)
+    assert fp.led_color("channel", (127, 50, 0))[0] in out["fp"]  # orange = B
+    e.on_faderport([0xB0, 0x3C, 0x42])  # two steps back -> wraps to E
+    assert e.send_idx == 4
+    press(e, "encoder_push"); press(e, "encoder_push", False)  # push = back to volume
+    assert not e.send_on
+
+
+def test_send_remembered_next_time(rig):
+    e, out = rig
+    tap(e, "channel")
+    e.on_faderport([0xB0, 0x3C, 0x02])  # -> send C
+    tap(e, "channel")
+    out["hui"].clear()
+    tap(e, "channel")
+    assert out["hui"][:2] == hui.switch(0x0B, 5, True)  # starts on send C again

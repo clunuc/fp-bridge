@@ -12,9 +12,11 @@
 #    auto_trim_toggle         pone la pista en automatización Trim / la devuelve a su modo anterior
 #    hui_tap_spaced <sw> <ms> como hui_tap, pero nunca dos pulsaciones a menos de <ms>
 #    wait <ms>                pausa dentro de una lista
+#    send_toggle              fader <-> nivel del envío seleccionado (HUI flip)
+#    send_step +1 / -1        elige el envío A-E
 #    none                     nada
 #
-#  LED:  hui <switch> (lo que diga Pro Tools) | mode <nombre> | toggle | held | shift | trim | on | off
+#  LED:  hui <switch> (lo que diga Pro Tools) | mode <nombre> | toggle | held | shift | trim | send | on | off
 #
 #  Switches HUI: strip.solo, strip.mute, strip.rec, strip.select, strip.auto,
 #  strip.vsel, strip.insert, transport.play, transport2.loop, ...
@@ -71,7 +73,7 @@ buttons:
   prev:    {press: ["hui_tap bank.chan_left",  "wait 40", "hui_tap_spaced strip.select 600"], shift: "key cmd+z"}
   next:    {press: ["hui_tap bank.chan_right", "wait 40", "hui_tap_spaced strip.select 600"], shift: "key cmd+shift+z"}
   pan:     {press: "mode pan",     led: "mode pan"}
-  channel: {press: "mode channel", led: "mode channel"}
+  channel: {press: "send_toggle", led: "send"}   # fader <-> envío (knob elige A-E; LED de color = envío)
   scroll:  {press: "key cmd+s", led: "held"}     # guardar sesión
   marker:  {press: "key cmd+shift+h", led: "held"}   # nueva memory location / marcador
 
@@ -100,6 +102,10 @@ encoder:
     pan:
       turn: "vpot"                      # girar = pan mono / pan L
       push: "hui_tap assign.pan"        # pulsar = alterna pan L <-> pan R
+    send:                               # activo mientras el fader controla un envío
+      cw: "send_step +1"                # siguiente envío (A -> B -> ... -> E)
+      ccw: "send_step -1"
+      push: "send_toggle"               # pulsar el knob = volver al volumen
     channel:
       cw: ["hui_tap bank.chan_right", "wait 40", "hui_tap_spaced strip.select 600"]
       ccw: ["hui_tap bank.chan_left", "wait 40", "hui_tap_spaced strip.select 600"]
@@ -116,3 +122,9 @@ encoder:
 
 # Cuando seleccionas una pista en Pro Tools, el fader salta a ella (vía PTSL).
 follow_selection: false
+
+# Envíos en el fader (botón Channel): HUI asigna el envío y hace FLIP (fader <-> knob).
+sends:
+  led_button: channel                   # botón cuyo LED de color indica el envío
+  encoder_mode: send                    # modo del knob mientras estás en envíos
+  colors: [[127, 0, 0], [127, 50, 0], [127, 110, 0], [0, 127, 0], [0, 40, 127]]   # A B C D E

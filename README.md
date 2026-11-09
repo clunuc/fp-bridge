@@ -70,7 +70,7 @@ La primera vez se copia de [fpbridge/default_config.yaml](fpbridge/default_confi
 | Touch / Write / Read | automatización Touch / Write / Read | Latch / Trim / Off |
 | Prev / Next | pista anterior / siguiente, y la selecciona | deshacer / rehacer |
 | Pan | encoder = pan; pulsar el encoder alterna pan L ↔ R | |
-| Channel | encoder = pista anterior / siguiente | |
+| Channel | **fader ↔ envío**: el fader controla el nivel de un envío (HUI flip). El knob elige el envío A–E y el LED de color lo indica (A rojo, B naranja, C amarillo, D verde, E azul). Pulsar Channel o el knob = volver al volumen | |
 | Scroll | guardar sesión (⌘S) | |
 | Marker | nueva memory location (⇧⌘H) | |
 | Click | metrónomo (tecla C) | |
