@@ -1,0 +1,118 @@
+# =============================================================================
+#  FP Bridge: FaderPort V2 (modo nativo) -> Pro Tools (HUI) + atajos de teclado
+# =============================================================================
+#
+#  Acciones disponibles (una o una lista que se ejecuta en orden):
+#    hui <switch>             mantiene pulsado el switch HUI mientras pulsas el botón
+#    hui_tap <switch>         pulsa y suelta el switch HUI
+#    hui_combo <mant> <tap>   mantiene <mant>, pulsa <tap>, suelta <mant>
+#    key <atajo>              atajo de teclado: "key c", "key cmd+e", "key kpenter"
+#    mode <nombre>            cambia el modo del encoder
+#    encoder +1 / encoder -1  un paso del encoder en el modo actual
+#    auto_trim_toggle         pone la pista en automatización Trim / la devuelve a su modo anterior
+#    hui_tap_spaced <sw> <ms> como hui_tap, pero nunca dos pulsaciones a menos de <ms>
+#    wait <ms>                pausa dentro de una lista
+#    none                     nada
+#
+#  LED:  hui <switch> (lo que diga Pro Tools) | mode <nombre> | toggle | held | shift | trim | on | off
+#
+#  Switches HUI: strip.solo, strip.mute, strip.rec, strip.select, strip.auto,
+#  strip.vsel, strip.insert, transport.play, transport2.loop, ...
+#  (lista completa: python -m fpbridge switches)
+#
+#  Teclas: a-z, 0-9, space, return, tab, esc, left/right/up/down, f1-f12,
+#  teclado numérico kp0-kp9, kpplus, kpminus, kpmul, kpdiv, kpdot, kpequals, kpenter, kpclear.
+#  Modificadores: cmd, shift, opt, ctrl.  Para otras teclas: keycode:<n>
+#  (python -m fpbridge keylearn te dice el código de cualquier tecla).
+# =============================================================================
+
+faderport:
+  port: "FP2"                  # parte del nombre del puerto MIDI ("PreSonus FP2")
+  encoder_cw_sets_bit: false   # si el encoder va al revés, cámbialo a true
+
+hui:
+  port_name: "FP Bridge HUI"   # puerto virtual (desaparece al cerrar el puente)
+  # Recomendado: dos buses IAC permanentes; Pro Tools nunca pierde la conexión.
+  # En Pro Tools: Receive From = iac_to_protools, Send To = iac_from_protools.
+  # iac_to_protools: "FP HUI A"
+  # iac_from_protools: "FP HUI B"
+  strip: 0                     # canal del banco HUI que controla el fader (0 = el 1º)
+  vpot_cw_sets_bit: true       # si el pan va al revés, cámbialo
+  jog_cw_sets_bit: false       # si el scroll va al revés, cámbialo
+
+keys:
+  target: frontmost            # frontmost = como un teclado real | protools = directo al proceso de Pro Tools
+
+colors:                        # botones con LED RGB (0-127)
+  link:    [127, 60, 0]
+  pan:     [0, 40, 127]
+  channel: [0, 127, 40]
+  scroll:  [127, 127, 0]
+  read:    [0, 127, 0]
+  write:   [127, 0, 0]
+  touch:   [127, 80, 0]
+
+# --- Botones ----------------------------------------------------------------
+# press = acción normal, shift = acción con SHIFT mantenido (si falta, usa press)
+buttons:
+  # Canal
+  solo:    {press: "hui strip.solo",   led: "hui strip.solo"}
+  mute:    {press: "hui strip.mute",   led: "hui strip.mute"}
+  arm:     {press: "hui strip.rec",    led: "hui strip.rec"}
+  bypass:  {press: "key cmd+z", shift: "key cmd+shift+z"}   # deshacer | SHIFT = rehacer
+
+  # Automatización de la pista (mantiene el modo y pulsa AUTO del canal)
+  touch:   {press: "hui_combo auto_mode.touch strip.auto", shift: "hui_combo auto_mode.latch strip.auto", led: "hui auto_mode.touch"}
+  write:   {press: "hui_combo auto_mode.write strip.auto", shift: "hui_combo auto_mode.trim strip.auto",  led: "hui auto_mode.write"}
+  read:    {press: "hui_combo auto_mode.read strip.auto",  shift: "hui_combo auto_mode.off strip.auto",   led: "hui auto_mode.read"}
+
+  # Navegación
+  # pista anterior / siguiente: mueve el banco una pista y la selecciona | SHIFT = deshacer / rehacer
+  prev:    {press: ["hui_tap bank.chan_left",  "wait 40", "hui_tap_spaced strip.select 600"], shift: "key cmd+z"}
+  next:    {press: ["hui_tap bank.chan_right", "wait 40", "hui_tap_spaced strip.select 600"], shift: "key cmd+shift+z"}
+  pan:     {press: "mode pan",     led: "mode pan"}
+  channel: {press: "mode channel", led: "mode channel"}
+  scroll:  {press: "key cmd+s", led: "held"}     # guardar sesión
+  marker:  {press: "key cmd+shift+h", led: "held"}   # nueva memory location / marcador
+
+  # Botones que PreSonus deja sin función en HUI -> atajos de teclado
+  click:   {press: "key c", led: "toggle"}       # metrónomo (tu atajo C)
+  master:  {press: "key cmd+shift+0"}            # alterna Mix / Edit (⌘= en teclado español)
+  section: {press: "key cmd+k", led: "toggle"}   # pre-roll on/off
+  link:    {press: "auto_trim_toggle", led: "trim"}         # alterna automatización normal <-> Trim
+
+  # Transporte
+  rewind:  {press: "hui transport.rewind", shift: "hui_tap transport2.rtz", led: "hui transport.rewind"}
+  ffwd:    {press: "hui transport.ffwd",   shift: "hui_tap transport2.end", led: "hui transport.ffwd"}
+  stop:    {press: "hui transport.stop",   led: "hui transport.stop"}
+  play:    {press: "hui transport.play",   led: "hui transport.play"}
+  record:  {press: "hui transport.record", led: "hui transport.record"}
+  loop:    {press: "hui transport2.loop",  shift: "hui transport2.quick_punch", led: "hui transport2.loop"}
+
+  footswitch: {press: "key space"}               # play / stop
+
+# --- Encoder ----------------------------------------------------------------
+# turn = control continuo (vpot / jog) | cw / ccw = acción por cada paso
+# push = al pulsar el encoder | push_release = al soltarlo | on_enter = al entrar en el modo
+encoder:
+  default_mode: pan
+  modes:
+    pan:
+      turn: "vpot"                      # girar = pan mono / pan L
+      push: "hui_tap assign.pan"        # pulsar = alterna pan L <-> pan R
+    channel:
+      cw: ["hui_tap bank.chan_right", "wait 40", "hui_tap_spaced strip.select 600"]
+      ccw: ["hui_tap bank.chan_left", "wait 40", "hui_tap_spaced strip.select 600"]
+      push: "hui_tap strip.select"
+    scroll:
+      turn: "jog"
+    zoom:
+      cw: "key cmd+]"
+      ccw: "key cmd+["
+    marker:
+      cw: "key kpplus"                     # nudge adelante
+      ccw: "key kpminus"                    # nudge atrás
+      push: "key kpenter"               # crear marcador
+
+# Cuando seleccionas una pista en Pro Tools, el fader salta a ella (vía PTSL).
+follow_selection: false
