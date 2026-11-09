@@ -229,9 +229,8 @@ def test_marker_adds_memory_location(rig):
 
 def test_new_button_shortcuts(rig):
     e, out = rig
-    tap(e, "master"); tap(e, "section"); tap(e, "bypass")
-    assert out["keys"] == ["cmd+shift+0", "cmd+k"]  # bypass: no action for now
-    assert out["hui"] == [] and e.led_state("bypass") == fp.LED_OFF
+    tap(e, "master"); tap(e, "section")
+    assert out["keys"] == ["cmd+shift+0", "cmd+k"]
 
 
 def _name(e, name):
@@ -503,10 +502,12 @@ def test_non_name_texts_are_not_track_changes(rig):
 
 
 # ---------------------------------------------------------------- long press / keyboard layer
-def test_bypass_short_does_nothing_long_bounces(rig):
+def test_bypass_short_is_new_take_long_bounces(rig):
     e, out = rig
-    tap(e, "bypass")
-    assert out["keys"] == []
+    tap(e, "bypass")  # stop, Create Playlist, arm record
+    assert out["keys"] == ["space", "ctrl+\\", "return"]
+    assert out["hui"][-4:] == hui.switch(0x0E, 5, True) + hui.switch(0x0E, 5, False)
+    out["keys"].clear()
     press(e, "bypass")
     e.tick(now=e.clock[0] + 0.6)
     assert out["keys"] == ["cmd+opt+b"]

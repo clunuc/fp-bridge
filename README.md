@@ -67,7 +67,7 @@ La primera vez se copia de [fpbridge/default_config.yaml](fpbridge/default_confi
 |---|---|---|
 | Solo / Mute / Arm | HUI del canal (con LED) | igual |
 | Shift | deshacer (⌘Z) | |
-| Bypass | — (mantener = Bounce Mix, ⌥⌘B) | |
+| Bypass | **nueva toma**: para, Create Playlist (⌃\ + Enter) y arma la grabación; mantener = Bounce Mix (⌥⌘B) | |
 | Touch / Write / Read | automatización Touch / Write / Read | Latch / Trim / Off |
 | Prev / Next | pista anterior / siguiente, y la selecciona | deshacer / rehacer |
 | Pan | encoder = pan; pulsar el encoder alterna pan L ↔ R | |
@@ -98,6 +98,7 @@ por los tuyos** en **Editar configuración…**:
 | Section | `⌘K` | pre-roll |
 | Scroll | `⌘S` | guardar |
 | Pedal | `espacio` | play/stop |
+| Bypass | `espacio`, `⌃\`, `Enter` | macro de nueva toma: usa Create Playlist (⌃\) de Pro Tools |
 
 Los botones HUI (transporte, solo, mute, arm, automatización, fader, pan) no
 dependen de tus atajos y funcionan igual en cualquier Pro Tools.
