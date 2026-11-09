@@ -7,7 +7,7 @@ import yaml
 
 from fpbridge import faderport as fp
 from fpbridge import hui
-from fpbridge.engine import Engine
+from fpbridge.engine import Engine, parse_action
 from fpbridge.keys import parse_combo
 
 CFG = yaml.safe_load((Path(__file__).parent.parent / "fpbridge" / "default_config.yaml").read_text())
@@ -26,6 +26,8 @@ def rig():
     e.now = lambda: clock[0]
     e.clock = clock
     e.follow = True  # follow tests exercise the feature even though it is off by default
+    e.kbd_mod_down = lambda: e.kbd  # simulated computer keyboard modifier
+    e.kbd = False
     e.start()
     for v in out.values():
         v.clear()
@@ -160,7 +162,7 @@ def test_encoder_modes(rig):
     assert out["hui"] == [[0xB0, 0x40, 0x41]]
     out["hui"].clear()
     e.set_mode("channel")  # track navigation mode (no button by default)
-    assert e._rgb_sent["pan"] == (18, 18, 18)  # pan dimmed (idle white)
+    assert e._rgb_sent["pan"] == (3, 3, 3)  # pan dimmed (idle white)
     e.on_faderport([0xB0, 0x3C, 0x42])  # 2 steps ccw
     bank = hui.switch(0x0A, 0, True) + hui.switch(0x0A, 0, False) + [["wait", 0.04]]
     select = hui.switch(0, 1, True) + hui.switch(0, 1, False)
@@ -250,7 +252,7 @@ def test_link_toggles_trim_with_one_press_each_way(rig):
     out["hui"].clear()
     tap(e, "link")
     assert combo(trim) == out["hui"]  # Trim is an on/off switch in Pro Tools
-    assert e._rgb_sent["link"] == (18, 18, 18)  # idle white
+    assert e._rgb_sent["link"] == (3, 3, 3)  # idle white
 
 
 def test_trim_led_follows_track(rig):
@@ -470,7 +472,7 @@ def test_mode_text_not_after_our_press_is_truth(rig):
 def test_scroll_triple_green_flash(rig):
     e, out = rig
     green = fp.led_color("scroll", (0, 127, 0))[0]
-    dim = fp.led_color("scroll", (18, 18, 18))[0]
+    dim = fp.led_color("scroll", (3, 3, 3))[0]
     out["fp"].clear()
     tap(e, "scroll")
     for i in range(8):
@@ -498,3 +500,35 @@ def test_non_name_texts_are_not_track_changes(rig):
     _name(e, "Auto")
     _name(e, " -  ")
     assert e._track_key() == "Vox"
+
+
+# ---------------------------------------------------------------- long press / keyboard layer
+def test_bypass_short_does_nothing_long_bounces(rig):
+    e, out = rig
+    tap(e, "bypass")
+    assert out["keys"] == []
+    press(e, "bypass")
+    e.tick(now=e.clock[0] + 0.6)
+    assert out["keys"] == ["cmd+opt+b"]
+    press(e, "bypass", False)
+    assert out["keys"] == ["cmd+opt+b"]  # release after a long press does nothing more
+
+
+def test_short_action_runs_on_release_when_button_has_hold(rig):
+    e, out = rig
+    e.buttons["marker"].hold = parse_action("key cmd+opt+b", 0)
+    press(e, "marker")
+    assert out["keys"] == []  # still undecided
+    press(e, "marker", False)
+    assert out["keys"] == ["cmd+shift+h"]
+
+
+def test_cmd_on_computer_keyboard_selects_second_layer(rig):
+    e, out = rig
+    e.kbd = True  # Cmd held on the Mac
+    tap(e, "touch")  # touch has shift: latch
+    latch = hui.switch(0x18, 1, True) + hui.switch(0, 4, True) + hui.switch(0, 4, False) + hui.switch(0x18, 1, False)
+    assert out["hui"] == latch + latch
+    out["hui"].clear()
+    tap(e, "solo")  # no second layer: normal action
+    assert out["hui"][:2] == hui.switch(0, 3, True)

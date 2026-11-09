@@ -63,11 +63,11 @@ La primera vez se copia de [fpbridge/default_config.yaml](fpbridge/default_confi
 
 ## Mapa por defecto
 
-| Botón | Normal | Con SHIFT |
+| Botón | Normal | Con ⌘ en el teclado del Mac |
 |---|---|---|
 | Solo / Mute / Arm | HUI del canal (con LED) | igual |
-| Shift | deshacer (⌘Z). No funciona como modificador; quita la línea `shift:` de la configuración para recuperar la columna "Con SHIFT" | |
-| Bypass | sin función (LED apagado) | |
+| Shift | deshacer (⌘Z) | |
+| Bypass | — (mantener = Bounce Mix, ⌥⌘B) | |
 | Touch / Write / Read | automatización Touch / Write / Read | Latch / Trim / Off |
 | Prev / Next | pista anterior / siguiente, y la selecciona | deshacer / rehacer |
 | Pan | encoder = pan; pulsar el encoder alterna pan L ↔ R | |
@@ -103,6 +103,14 @@ Los botones HUI (transporte, solo, mute, arm, automatización, fader, pan) no
 dependen de tus atajos y funcionan igual en cualquier Pro Tools.
 
 ## Cambiar la configuración
+
+Cada botón puede tener tres acciones:
+
+- `press`: al pulsarlo.
+- `hold`: al mantenerlo pulsado (`long_press_ms`, 500 ms por defecto). Si un botón tiene `hold`, su acción normal se ejecuta al soltarlo.
+- `shift`: al pulsarlo mientras mantienes **⌘** en el teclado del Mac (`keyboard_modifier`).
+
+Cualquier acción puede ser una lista de pasos (una macro).
 
 ```yaml
 bypass:  {press: "key cmd+opt+b"}                     # un atajo

@@ -133,6 +133,7 @@ class ButtonCfg:
     color_on: tuple | None = None  # RGB buttons: colour when the LED is "on"
     color_off: tuple | None = None  # ... and when "off" (None = LED dark)
     flash: dict | None = None  # {color, times, ms}: blink on press
+    hold: list[Action] | None = None  # long press: runs instead of `press` when held
 
 
 def _rgb(v):
@@ -192,6 +193,12 @@ class Engine:
         self._auto_press: tuple[float, str] | None = None
         self.probe_auto = bool((config.get("automation") or {}).get("probe_on_track_change", False))
         self._probe_at: float | None = None
+        # long press: button -> (due time, short actions); fires `hold` when due
+        self.long_press = int(config.get("long_press_ms", 500)) / 1000
+        self._holds: dict[str, tuple[float, list[Action]]] = {}
+        # a key on the computer keyboard that, held, selects the second layer (`shift:`)
+        self.kbd_modifier = (config.get("keyboard_modifier") or "").lower() or None
+        self.kbd_mod_down: Callable[[], bool] = self._read_kbd_modifier  # replaced in tests
         self._track_name = ""  # last real track name on the fader strip
         self._flashes: dict[str, tuple[float, float, int]] = {}  # button -> (start, ms, phases)
         self._rgb_sent: dict[str, tuple] = {}
@@ -216,6 +223,7 @@ class Engine:
                 flash=({"color": _rgb(b["flash"].get("color", [127, 127, 127])),
                         "times": int(b["flash"].get("times", 1)),
                         "ms": int(b["flash"].get("ms", 120))} if b.get("flash") else None),
+                hold=parse_action(b["hold"], self.strip) if b.get("hold") else None,
             )
 
         ecfg = config.get("encoder") or {}
@@ -314,16 +322,36 @@ class Engine:
             return
 
         if pressed:
-            acts = cfg.shift if (self.shift and cfg.shift is not None) else cfg.press
+            second = self.shift or (cfg.shift is not None and self.kbd_modifier and self.kbd_mod_down())
+            acts = cfg.shift if (second and cfg.shift is not None) else cfg.press
             if cfg.flash:
                 self._flashes[name] = (self.now(), cfg.flash["ms"] / 1000, cfg.flash["times"] * 2)
             if cfg.led == "toggle":
                 self.toggles[name] = not self.toggles.get(name, False)
-            self.active[name] = acts
+            if cfg.hold and not second:
+                # short or long press? decided on release / when the time is up
+                self._holds[name] = (self.now() + self.long_press, acts)
+            else:
+                self.active[name] = acts
+                self._run(acts, True)
+        elif name in self._holds:  # released before the long-press time: short press
+            _, acts = self._holds.pop(name)
             self._run(acts, True)
+            self._run(acts, False)
         else:
             self._run(self.active.pop(name, []), False)
         self.refresh_leds()
+
+    def _read_kbd_modifier(self) -> bool:
+        """Is the configured modifier key held on the computer keyboard right now?"""
+        try:
+            import Quartz
+            from .keys import MODIFIERS
+
+            flags = Quartz.CGEventSourceFlagsState(Quartz.kCGEventSourceStateCombinedSessionState)
+            return bool(flags & MODIFIERS[self.kbd_modifier])
+        except Exception:
+            return False
 
     def _run(self, actions: list[Action], pressed: bool) -> None:
         for a in actions:
@@ -651,6 +679,14 @@ class Engine:
                 self._last_tap[target] = now
                 self._hui_switch(target, True)
                 self._hui_switch(target, False)
+        for name, (due, _acts) in list(self._holds.items()):
+            if now >= due:  # still held: long press
+                del self._holds[name]
+                cfg = self.buttons.get(name)
+                if cfg and cfg.hold:
+                    log.info("pulsación larga: %s", name)
+                    self._run(cfg.hold, True)
+                    self._run(cfg.hold, False)
         if self._probe_at is not None and now >= self._probe_at:
             self._probe_at = None
             self._probe_auto_mode()

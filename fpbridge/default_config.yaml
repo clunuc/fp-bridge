@@ -18,6 +18,9 @@
 #    send_off                 devuelve el fader al volumen (sale del flip si hace falta)
 #    none                     nada
 #
+#  Cada botón: press = al pulsar | hold = al mantener (pulsación larga) |
+#  shift = con la tecla del ordenador `keyboard_modifier` mantenida (Cmd) o con SHIFT
+#
 #  LED:  hui <switch> (lo que diga Pro Tools) | mode <nombre> | toggle | held | shift | trim | send
 #        | auto <modo>[,<modo>] (modo de automatización de la pista) | on | off
 #  Botones RGB: color_on / color_off = color encendido / apagado (sin color_off: LED apagado)
@@ -67,7 +70,7 @@ buttons:
   solo:    {press: "hui strip.solo",   led: "hui strip.solo"}
   mute:    {press: "hui strip.mute",   led: "hui strip.mute"}
   arm:     {press: "hui strip.rec",    led: "hui strip.rec"}
-  bypass:  {press: "none", led: "off"}   # sin función por ahora (LED apagado)
+  bypass:  {press: "none", hold: "key cmd+opt+b", led: "off"}   # mantener = Bounce Mix (⌥⌘B)
 
   # Automatización de la pista (mantiene el modo y pulsa AUTO del canal)
   # Automatización de la pista. LED: lo que Pro Tools indique por HUI
@@ -79,16 +82,16 @@ buttons:
   # pista anterior / siguiente: mueve el banco una pista y la selecciona | SHIFT = deshacer / rehacer
   prev:    {press: ["hui_tap bank.chan_left",  "wait 40", "hui_tap_spaced strip.select 600"], shift: "key cmd+z"}
   next:    {press: ["hui_tap bank.chan_right", "wait 40", "hui_tap_spaced strip.select 600"], shift: "key cmd+shift+z"}
-  pan:     {press: ["send_off", "mode pan"], led: "mode pan", color_on: [0, 40, 127], color_off: [18, 18, 18]}   # Pan siempre devuelve el fader al volumen
-  channel: {press: "send_toggle", led: "send", color_off: [18, 18, 18]}   # fader <-> envío (knob elige A-E; LED de color = envío)
-  scroll:  {press: "key cmd+s", color_off: [18, 18, 18], flash: {color: [0, 127, 0], times: 3, ms: 110}}   # guardar: triple destello verde
+  pan:     {press: ["send_off", "mode pan"], led: "mode pan", color_on: [0, 40, 127], color_off: [3, 3, 3]}   # Pan siempre devuelve el fader al volumen
+  channel: {press: "send_toggle", led: "send", color_off: [3, 3, 3]}   # fader <-> envío (knob elige A-E; LED de color = envío)
+  scroll:  {press: "key cmd+s", color_off: [3, 3, 3], flash: {color: [0, 127, 0], times: 3, ms: 110}}   # guardar: triple destello verde
   marker:  {press: "key cmd+shift+h", led: "held"}   # nueva memory location / marcador
 
   # Botones que PreSonus deja sin función en HUI -> atajos de teclado
   click:   {press: "key c", led: "toggle"}       # metrónomo (tu atajo C)
   master:  {press: "key cmd+shift+0"}            # alterna Mix / Edit (⌘= en teclado español)
   section: {press: "key cmd+k", led: "toggle"}   # pre-roll on/off
-  link:    {press: "auto_trim_toggle", led: "trim", color_on: [127, 60, 0], color_off: [18, 18, 18]}         # alterna automatización normal <-> Trim
+  link:    {press: "auto_trim_toggle", led: "trim", color_on: [127, 60, 0], color_off: [3, 3, 3]}         # alterna automatización normal <-> Trim
 
   # Transporte
   rewind:  {press: "hui transport.rewind", shift: "hui_tap transport2.rtz", led: "hui transport.rewind"}
@@ -140,3 +143,10 @@ sends:
 # por dentro). Desactivado: los LEDs de Read/Touch/Write siguen a Pro Tools por HUI.
 automation:
   probe_on_track_change: false
+
+# Mantén esta tecla del ordenador y pulsa un botón del FaderPort para su acción `shift:`.
+# (cmd, opt, ctrl o shift; vacío = desactivado)
+keyboard_modifier: cmd
+
+# Pulsación larga: tiempo para que cuente como "mantener" (acción `hold:`)
+long_press_ms: 500
