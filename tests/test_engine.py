@@ -228,8 +228,8 @@ def test_marker_adds_memory_location(rig):
 def test_new_button_shortcuts(rig):
     e, out = rig
     tap(e, "master"); tap(e, "section"); tap(e, "bypass")
-    press(e, "shift"); tap(e, "bypass"); press(e, "shift", False)
-    assert out["keys"] == ["cmd+shift+0", "cmd+k", "cmd+z", "cmd+shift+z"]
+    assert out["keys"] == ["cmd+shift+0", "cmd+k"]  # bypass: no action for now
+    assert out["hui"] == [] and e.led_state("bypass") == fp.LED_OFF
 
 
 def _name(e, name):
