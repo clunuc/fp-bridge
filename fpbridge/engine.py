@@ -204,6 +204,7 @@ class Engine:
         self.record_mute = bool(rcfg.get("enabled", False))
         self.recording = False
         self._rec_muted: tuple[int, str] | None = None  # (strip, track) we muted
+        self._rec_stop_at: float | None = None  # Play went out: stop if it stays out
         self._track_name = ""  # last real track name on the fader strip
         self._flashes: dict[str, tuple[float, float, int]] = {}  # button -> (start, ms, phases)
         self._rgb_sent: dict[str, tuple] = {}
@@ -584,6 +585,8 @@ class Engine:
         leds = self.host.leds
         play = leds.get(hui.SWITCHES["transport.play"], False)
         rec = leds.get(hui.SWITCHES["transport.record"], False)
+        if play:
+            self._rec_stop_at = None  # (Pro Tools blinks Play off for a moment as recording starts)
         if not self.recording and play and rec:
             self.recording = True
             log.info("grabando")
@@ -594,18 +597,22 @@ class Engine:
                     self._tap((self.strip, hui.STRIP_PORTS["mute"]))
                     self._rec_muted = (self.strip, self._track_key())
                     log.info("pista %s muteada mientras graba", self._track_key())
-        elif self.recording and not play:
-            self.recording = False
-            log.info("grabación parada")
-            if self._rec_muted:
-                strip, track = self._rec_muted
-                self._rec_muted = None
-                if strip == self.strip and track == self._track_key():
-                    if leds.get((strip, hui.STRIP_PORTS["mute"]), False):
-                        self._tap((strip, hui.STRIP_PORTS["mute"]))
-                        log.info("pista %s desmuteada", track)
-                else:
-                    log.warning("la pista %s ya no está en el fader: no la puedo desmutear", track)
+        elif self.recording and not play and self._rec_stop_at is None:
+            self._rec_stop_at = self.now() + 0.4
+
+    def _recording_stopped(self) -> None:
+        leds = self.host.leds
+        self.recording = False
+        log.info("grabación parada")
+        if self._rec_muted:
+            strip, track = self._rec_muted
+            self._rec_muted = None
+            if strip == self.strip and track == self._track_key():
+                if leds.get((strip, hui.STRIP_PORTS["mute"]), False):
+                    self._tap((strip, hui.STRIP_PORTS["mute"]))
+                    log.info("pista %s desmuteada", track)
+            else:
+                log.warning("la pista %s ya no está en el fader: no la puedo desmutear", track)
 
     def _probe_auto_mode(self) -> None:
         """Ask Pro Tools the automation mode of the track on the fader without changing it:
@@ -723,6 +730,10 @@ class Engine:
                     log.info("pulsación larga: %s", name)
                     self._run(cfg.hold, True)
                     self._run(cfg.hold, False)
+        if self._rec_stop_at is not None and now >= self._rec_stop_at:
+            self._rec_stop_at = None
+            if not self.host.leds.get(hui.SWITCHES["transport.play"], False):
+                self._recording_stopped()
         if self._probe_at is not None and now >= self._probe_at:
             self._probe_at = None
             self._probe_auto_mode()

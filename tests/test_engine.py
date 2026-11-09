@@ -555,10 +555,15 @@ def test_armed_track_muted_while_recording_and_unmuted_after(rig):
     assert out["hui"] == mute
     _led(e, 0, 2, True)  # Pro Tools: muted
     out["hui"].clear()
-    _led(e, 0x0E, 5, False)  # Rec blinking during the take must not unmute
+    _led(e, 0x0E, 4, False)  # Pro Tools blinks Play off for a moment as the take starts
+    _led(e, 0x0E, 4, True)
+    e.tick(now=e.clock[0] + 1)
+    _led(e, 0x0E, 5, False)  # Rec blinking during the take must not unmute either
     _led(e, 0x0E, 5, True)
     assert out["hui"] == []
     _led(e, 0x0E, 4, False)  # stop
+    assert out["hui"] == []  # not yet: Play must stay out for a moment
+    e.tick(now=e.clock[0] + 2)
     assert out["hui"] == mute
 
 
@@ -569,6 +574,7 @@ def test_record_mute_leaves_user_mute_alone(rig):
     out["hui"].clear()
     _led(e, 0x0E, 5, True); _led(e, 0x0E, 4, True)
     _led(e, 0x0E, 4, False)
+    e.tick(now=e.clock[0] + 1)
     assert out["hui"] == []
 
 
