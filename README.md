@@ -56,6 +56,7 @@ puerto que ha desaparecido.
   unos 2 segundos, sin reiniciar. Si tiene un error, sigue funcionando con la
   anterior y el menú muestra el aviso.
 - **Ver registro…:** `~/Library/Logs/FP Bridge.log`.
+- **Monitorización directa (mutear al grabar):** activa o desactiva `record_mute` (ver Opciones).
 - **Abrir al iniciar sesión.**
 
 Tu configuración está en `~/Library/Application Support/FP Bridge/config.yaml`.

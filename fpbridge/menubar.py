@@ -35,6 +35,28 @@ def _app_path() -> str | None:
     return os.environ.get("FPBRIDGE_APP")
 
 
+def record_mute_enabled(config: Path) -> bool:
+    import yaml
+
+    try:
+        cfg = yaml.safe_load(config.read_text(encoding="utf-8")) or {}
+        return bool((cfg.get("record_mute") or {}).get("enabled", False))
+    except Exception:
+        return False
+
+
+def set_record_mute(config: Path, on: bool) -> None:
+    """Flip record_mute.enabled in the YAML text, keeping the user's comments and layout."""
+    import re
+
+    text = config.read_text(encoding="utf-8")
+    value = "true" if on else "false"
+    new, n = re.subn(r"(?m)^(record_mute:\s*\n(?:[ \t]+#.*\n)*[ \t]+enabled:[ \t]*)\S+", rf"\g<1>{value}", text)
+    if n == 0:
+        new = text.rstrip("\n") + f"\n\nrecord_mute:\n  enabled: {value}\n"
+    config.write_text(new, encoding="utf-8")
+
+
 class FPBridgeApp(rumps.App):
     def __init__(self) -> None:
         icon = str(paths.PACKAGE_DIR / "assets" / "menubar.png")
@@ -43,12 +65,17 @@ class FPBridgeApp(rumps.App):
         self.item_fp = rumps.MenuItem("FaderPort: …")
         self.item_pt = rumps.MenuItem("Pro Tools: …")
         self.item_err = rumps.MenuItem("")
+        self.item_monitor = rumps.MenuItem("Monitorización directa (mutear al grabar)",
+                                           callback=self.toggle_record_mute)
+        self.item_monitor.state = record_mute_enabled(paths.user_config())
         self.item_login = rumps.MenuItem("Abrir al iniciar sesión", callback=self.toggle_login)
         self.item_login.state = AGENT_PLIST.exists()
         self.menu = [
             self.item_fp,
             self.item_pt,
             self.item_err,
+            None,
+            self.item_monitor,
             None,
             rumps.MenuItem("Editar configuración…", callback=self.edit_config),
             rumps.MenuItem("Recargar configuración", callback=self.reload_config),
@@ -91,6 +118,14 @@ class FPBridgeApp(rumps.App):
             self.title = title
 
     # ---------------------------------------------------------- actions
+    def toggle_record_mute(self, sender) -> None:
+        on = not sender.state
+        set_record_mute(paths.user_config(), on)
+        if self.bridge.engine is not None:
+            self.bridge.engine.record_mute = on
+        sender.state = on
+        log.info("monitorización directa (mutear al grabar): %s", "on" if on else "off")
+
     def edit_config(self, _) -> None:
         subprocess.run(["open", "-t", str(paths.user_config())], check=False)
 
